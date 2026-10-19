@@ -11,7 +11,7 @@ version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/C
 bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
 architecture=$(uname -m)
 codesign --verify --deep --strict "$app"
-lipo -verify_arch "$architecture" "$app/Contents/MacOS/rustlet"
+lipo "$app/Contents/MacOS/rustlet" -verify_arch "$architecture"
 if [[ -n "${GITHUB_REF_TYPE:-}" && "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
   echo "Tag $GITHUB_REF_NAME does not match app version v$version" >&2
   exit 1
