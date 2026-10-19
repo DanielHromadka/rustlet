@@ -1,0 +1,14 @@
+[
+  {
+    "id": "desktop-tool-ring",
+    "name": "Desktop Tool Ring",
+    "description": "Kruhové akce pro soubory na ploše a bubliny Liquid Glass.",
+    "bundle_id": "cz.attosoft.desktop-tool-ring",
+    "bundle_name": "Desktop Tool Ring.app",
+    "symbol": "circle.hexagongrid",
+    "manifest_url": "https://github.com/DanielHromadka/desktop-tool-ring-releases/releases/latest/download/release.json",
+    "archive_prefix": "https://github.com/DanielHromadka/desktop-tool-ring-releases/releases/download/",
+    "public_key": "TZ4v72SpnwQc5uDcPXsmWCMuypdVa4s1fMTEBR3azd8=",
+    "team_id": "5YNN4BF446"
+  }
+]
