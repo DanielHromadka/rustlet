@@ -10,5 +10,17 @@
     "archive_prefix": "https://github.com/DanielHromadka/desktop-tool-ring-releases/releases/download/",
     "public_key": "TZ4v72SpnwQc5uDcPXsmWCMuypdVa4s1fMTEBR3azd8=",
     "team_id": "5YNN4BF446"
+  },
+  {
+    "id": "gaze-grab",
+    "name": "Gaze Grab",
+    "description": "Kurzor pravou rukou, klik a scroll gesty jedné nebo obou rukou. Živá diagnostika kamery.",
+    "bundle_id": "cz.attosoft.gaze-grab",
+    "bundle_name": "Gaze Grab.app",
+    "symbol": "eye",
+    "manifest_url": "https://github.com/DanielHromadka/gaze-grab-releases/releases/latest/download/release.json",
+    "archive_prefix": "https://github.com/DanielHromadka/gaze-grab-releases/releases/download/",
+    "public_key": "ZY7ouKUcmat6k+JKr9SO3+uv5iwyOv3kbzoERFzet9Q=",
+    "team_id": "5YNN4BF446"
   }
 ]

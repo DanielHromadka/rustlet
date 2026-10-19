@@ -128,6 +128,8 @@ static int StopForInstall(const char *identifier,const char *path) {
         NSTextField *message=[self label:@"" frame:NSMakeRect(20,52,534,24) in:body]; message.font=[NSFont systemFontOfSize:11]; message.textColor=NSColor.secondaryLabelColor; message.maximumNumberOfLines=1;
         self.rows[tool[@"id"]]=@{@"state":state,@"version":version,@"toggle":toggle,@"settings":settings,@"install":install,@"message":message};
     }
+    [scroll.contentView scrollToPoint:NSMakePoint(0,MAX(0,height-scroll.contentSize.height))];
+    [scroll reflectScrolledClipView:scroll.contentView];
     self.checkButton=[NSButton buttonWithTitle:@"Zkontrolovat verze" target:self action:@selector(checkAll:)];
     self.checkButton.frame=NSMakeRect(28,86,194,32); [view addSubview:self.checkButton];
     self.automatic=[NSButton checkboxWithTitle:@"Hledat aktualizace každou hodinu" target:self action:@selector(changeAutomatic:)];
