@@ -1,3 +1,4 @@
+mod bootstrap;
 mod install;
 mod releases;
 #[cfg(test)]
@@ -86,6 +87,9 @@ pub unsafe extern "C" fn mini_install(
     let mut relaunch = false;
     let result = (|| {
         let tool = releases::tool(input(id))?;
+        if tool.integration == releases::Integration::External {
+            return bootstrap::install(&tool, Path::new(input(target)), input(os));
+        }
         let release = releases::latest(&tool, input(os))?;
         let (result, stopped) = install::install(&tool, &release, Path::new(input(target)), || {
             match stop(id, target) {

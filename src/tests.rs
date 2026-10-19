@@ -1,5 +1,5 @@
 use super::{
-    install,
+    bootstrap, install,
     releases::{self, Release},
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -119,4 +119,135 @@ fn missing_staged_app_rolls_back_and_targets_are_restricted() {
         &tool,
         home
     ));
+}
+
+#[test]
+fn external_apps_keep_their_own_updates() {
+    let tool = releases::tool("afinder").unwrap();
+    assert_eq!(tool.bundle_id, "cz.attosoft.afinder");
+    assert_eq!(tool.integration, releases::Integration::External);
+    // Reject external tools before any network access or release verification.
+    assert_eq!(
+        releases::latest(&tool, "26.0").unwrap_err(),
+        "Aktualizace spravuje samotná aplikace."
+    );
+    let (_, release, key) = fixture();
+    assert_eq!(
+        releases::decode(&tool, &envelope(&release, &key)).unwrap_err(),
+        "Aktualizace spravuje samotná aplikace."
+    );
+    let managed = releases::tool("desktop-tool-ring").unwrap();
+    assert_eq!(managed.integration, releases::Integration::Rustlet);
+    assert!(!managed.manifest_url.is_empty());
+    assert!(!managed.public_key.is_empty());
+}
+
+fn github_fixture() -> serde_json::Value {
+    use sha2::{Digest, Sha256};
+    serde_json::json!({
+        "tag_name":"v1.2.3", "draft":false, "prerelease":false,
+        "assets":(["arm64", "x64"].map(|arch| serde_json::json!({
+            "name":format!("aFinder-{arch}-mac.zip"), "size":3,
+            "browser_download_url":format!("https://github.com/DanielHromadka/afinder-downloads/releases/download/v1.2.3/aFinder-{arch}-mac.zip"),
+            "digest":format!("sha256:{:x}", Sha256::digest(b"zip"))
+        })))
+    })
+}
+#[test]
+fn bootstrap_selects_the_native_archive_and_rejects_tampering() {
+    let tool = releases::tool("afinder").unwrap();
+    let metadata = github_fixture();
+    for (arch, name) in [("aarch64", "arm64"), ("x86_64", "x64")] {
+        let (version, asset) =
+            bootstrap::select_asset(&serde_json::to_vec(&metadata).unwrap(), &tool, arch).unwrap();
+        assert_eq!(version, "1.2.3");
+        assert!(asset
+            .browser_download_url
+            .ends_with(&format!("aFinder-{name}-mac.zip")));
+        assert!(bootstrap::verify_archive(b"zip", &asset).is_ok());
+        assert!(bootstrap::verify_archive(b"ziq", &asset).is_err());
+        assert!(bootstrap::verify_archive(b"zip-extra", &asset).is_err());
+    }
+    for mutation in ["url", "size", "digest", "missing", "prerelease", "draft"] {
+        let mut metadata = github_fixture();
+        match mutation {
+            "url" => {
+                metadata["assets"][0]["browser_download_url"] =
+                    "https://evil.invalid/aFinder-arm64-mac.zip".into()
+            }
+            "size" => metadata["assets"][0]["size"] = (releases::MAX_ARCHIVE + 1).into(),
+            "digest" => metadata["assets"][0]["digest"] = "sha256:bad".into(),
+            "missing" => metadata["assets"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("digest")
+                .map(|_| ())
+                .unwrap(),
+            "prerelease" => metadata["prerelease"] = true.into(),
+            _ => metadata["draft"] = true.into(),
+        }
+        assert!(
+            bootstrap::select_asset(&serde_json::to_vec(&metadata).unwrap(), &tool, "aarch64")
+                .is_err(),
+            "{mutation}"
+        );
+    }
+    assert!(
+        bootstrap::select_asset(&serde_json::to_vec(&metadata).unwrap(), &tool, "riscv64").is_err()
+    );
+}
+#[test]
+fn bootstrap_never_overwrites_an_existing_installation() {
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source.app");
+    let target = root.path().join("target.app");
+    fs::create_dir(&source).unwrap();
+    fs::write(source.join("version"), "new").unwrap();
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("version"), "existing").unwrap();
+    assert!(bootstrap::ensure_absent(&target).is_err());
+    assert!(bootstrap::commit(&source, &target).is_err());
+    assert_eq!(
+        fs::read_to_string(target.join("version")).unwrap(),
+        "existing"
+    );
+    let dangling = root.path().join("dangling.app");
+    std::os::unix::fs::symlink(root.path().join("missing"), &dangling).unwrap();
+    assert!(bootstrap::ensure_absent(&dangling).is_err());
+    assert!(bootstrap::commit(&source, &dangling).is_err());
+    let fresh = root.path().join("fresh.app");
+    bootstrap::commit(&source, &fresh).unwrap();
+    assert_eq!(fs::read_to_string(fresh.join("version")).unwrap(), "new");
+}
+
+#[test]
+#[ignore = "Downloads and validates the current public aFinder release with Gatekeeper"]
+fn afinder_download_install_end_to_end() {
+    let home = tempfile::tempdir().unwrap();
+    let tool = releases::tool("afinder").unwrap();
+    let target = home.path().join("Applications").join(&tool.bundle_name);
+    let output = std::process::Command::new("/usr/bin/sw_vers")
+        .arg("-productVersion")
+        .output()
+        .unwrap();
+    let os = String::from_utf8(output.stdout).unwrap();
+    bootstrap::install_in_home(&tool, &target, os.trim(), home.path()).unwrap();
+    let info = plist::Value::from_file(target.join("Contents/Info.plist")).unwrap();
+    assert_eq!(
+        info.as_dictionary().unwrap()["CFBundleIdentifier"].as_string(),
+        Some(tool.bundle_id.as_str())
+    );
+    let mut wrong_publisher = tool.clone();
+    wrong_publisher.team_id = "WRONGTEAM".into();
+    assert!(install::validate_publisher(&target, &wrong_publisher).is_err());
+    assert!(
+        bootstrap::install_in_home(&tool, &target, os.trim(), home.path())
+            .unwrap_err()
+            .contains("už je nainstalovaná")
+    );
+    assert_eq!(
+        fs::read_dir(target.parent().unwrap()).unwrap().count(),
+        1,
+        "Staging files must be cleaned up"
+    );
 }

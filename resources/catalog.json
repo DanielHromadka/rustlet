@@ -12,6 +12,17 @@
     "team_id": "5YNN4BF446"
   },
   {
+    "id": "afinder",
+    "name": "aFinder",
+    "description": "Správce souborů pro Mac s panely, terminálem a pracovními prostory.",
+    "bundle_id": "cz.attosoft.afinder",
+    "bundle_name": "aFinder.app",
+    "symbol": "folder",
+    "integration": "external",
+    "github_repository": "DanielHromadka/afinder-downloads",
+    "team_id": "5YNN4BF446"
+  },
+  {
     "id": "gaze-grab",
     "name": "Gaze Grab",
     "description": "Kurzor pravou rukou, klik a scroll gesty jedné nebo obou rukou. Živá diagnostika kamery.",

@@ -7,6 +7,13 @@ use std::{
 };
 
 pub const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum Integration {
+    #[default]
+    Rustlet,
+    External,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Tool {
     pub id: String,
@@ -15,9 +22,17 @@ pub struct Tool {
     pub bundle_id: String,
     pub bundle_name: String,
     pub symbol: String,
+    #[serde(default)]
+    pub integration: Integration,
+    #[serde(default)]
+    pub github_repository: String,
+    #[serde(default)]
     pub manifest_url: String,
+    #[serde(default)]
     pub archive_prefix: String,
+    #[serde(default)]
     pub public_key: String,
+    #[serde(default)]
     pub team_id: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -64,6 +79,7 @@ pub fn verify(data: &[u8], signature: &str, public: &str) -> Result<(), String> 
         .map_err(|_| "Podpis vydavatele nesouhlasí. Instalace byla zastavena.".into())
 }
 pub fn decode(tool: &Tool, bytes: &[u8]) -> Result<Release, String> {
+    managed_updates(tool)?;
     if bytes.len() > 65536 {
         return Err("Informace o verzi jsou příliš velké.".into());
     }
@@ -110,11 +126,11 @@ pub fn compatible(release: &Release, os: &str, arch: &str) -> Result<(), String>
     if !release.architectures.iter().any(|a| a == arch) {
         return Err("Tato verze není dostupná pro procesor tohoto Macu.".into());
     }
-    if os_version(os)? < os_version(&release.minimum_macos)? {
-        return Err(format!(
-            "Vyžaduje macOS {} nebo novější.",
-            release.minimum_macos
-        ));
+    require_macos(&release.minimum_macos, os)
+}
+pub fn require_macos(minimum: &str, os: &str) -> Result<(), String> {
+    if os_version(os)? < os_version(minimum)? {
+        return Err(format!("Vyžaduje macOS {} nebo novější.", minimum));
     }
     Ok(())
 }
@@ -122,6 +138,8 @@ pub fn download(url: &str, maximum: u64) -> Result<Vec<u8>, String> {
     if !url.starts_with("https://") {
         return Err("Stahování vyžaduje HTTPS.".into());
     }
+    // Allow large installers on slower connections, while timing out stalled transfers.
+    let timeout = if maximum > 1024 * 1024 { "900" } else { "120" };
     // macOS supplies curl. Ignore user curlrc; never invoke a shell or allow TLS downgrade.
     let mut child = Command::new("/usr/bin/curl")
         .args([
@@ -140,7 +158,11 @@ pub fn download(url: &str, maximum: u64) -> Result<Vec<u8>, String> {
             "--connect-timeout",
             "15",
             "--max-time",
-            "120",
+            timeout,
+            "--speed-limit",
+            "1024",
+            "--speed-time",
+            "60",
             "--user-agent",
             "Rustlet/0.1",
             "--url",
@@ -173,7 +195,14 @@ pub fn download(url: &str, maximum: u64) -> Result<Vec<u8>, String> {
     }
     Ok(bytes)
 }
+fn managed_updates(tool: &Tool) -> Result<(), String> {
+    if tool.integration == Integration::External {
+        return Err("Aktualizace spravuje samotná aplikace.".into());
+    }
+    Ok(())
+}
 pub fn latest(tool: &Tool, os: &str) -> Result<Release, String> {
+    managed_updates(tool)?;
     let release = decode(tool, &download(&tool.manifest_url, 65536)?)?;
     compatible(&release, os, std::env::consts::ARCH)?;
     Ok(release)

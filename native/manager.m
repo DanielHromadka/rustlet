@@ -15,7 +15,9 @@ static NSString *OSVersion(void) {
     NSOperatingSystemVersion v=NSProcessInfo.processInfo.operatingSystemVersion;
     return [NSString stringWithFormat:@"%ld.%ld.%ld",v.majorVersion,v.minorVersion,v.patchVersion];
 }
+static BOOL External(NSDictionary *tool) { return [tool[@"integration"] isEqual:@"external"]; }
 static void Manage(NSDictionary *tool) {
+    if (External(tool)) return;
     CFStringRef domain=(__bridge CFStringRef)tool[@"bundle_id"];
     CFPreferencesSetAppValue((__bridge CFStringRef)ManagedKey,kCFBooleanTrue,domain);
     CFPreferencesAppSynchronize(domain);
@@ -25,6 +27,11 @@ static NSDictionary *Info(NSURL *url) {
     return url ? [NSDictionary dictionaryWithContentsOfURL:[url URLByAppendingPathComponent:@"Contents/Info.plist"]] ?: @{} : @{};
 }
 static NSURL *Installed(NSDictionary *tool) {
+    NSString *selected=[NSUserDefaults.standardUserDefaults stringForKey:[@"applicationPath." stringByAppendingString:tool[@"id"]]];
+    if (selected.length) {
+        NSURL *url=[NSURL fileURLWithPath:selected];
+        if ([Info(url)[@"CFBundleIdentifier"] isEqual:tool[@"bundle_id"]]) return url;
+    }
     for (NSString *root in @[@"/Applications",[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"]]) {
         NSURL *url=[NSURL fileURLWithPath:[root stringByAppendingPathComponent:tool[@"bundle_name"]]];
         if ([Info(url)[@"CFBundleIdentifier"] isEqual:tool[@"bundle_id"]]) return url;
@@ -123,9 +130,9 @@ static int StopForInstall(const char *identifier,const char *path) {
         [self label:tool[@"description"] frame:NSMakeRect(20,106,530,40) in:body].textColor=NSColor.secondaryLabelColor;
         NSTextField *version=[self label:@"" frame:NSMakeRect(20,78,530,24) in:body]; version.font=[NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightRegular];
         NSButton *toggle=[NSButton checkboxWithTitle:@"Zapnuto" target:self action:@selector(toggleTool:)]; toggle.frame=NSMakeRect(20,22,116,32); toggle.identifier=tool[@"id"]; [body addSubview:toggle];
-        NSButton *settings=[NSButton buttonWithTitle:@"Nastavení…" target:self action:@selector(settingsTool:)]; settings.frame=NSMakeRect(146,22,130,32); settings.identifier=tool[@"id"]; [body addSubview:settings];
+        NSButton *settings=[NSButton buttonWithTitle:External(tool) ? @"Otevřít…" : @"Nastavení…" target:self action:@selector(settingsTool:)]; settings.frame=NSMakeRect(146,22,130,32); settings.identifier=tool[@"id"]; [body addSubview:settings];
         NSButton *install=[NSButton buttonWithTitle:@"Nainstalovat" target:self action:@selector(installTool:)]; install.frame=NSMakeRect(380,22,174,32); install.identifier=tool[@"id"]; [body addSubview:install];
-        NSTextField *message=[self label:@"" frame:NSMakeRect(20,52,534,24) in:body]; message.font=[NSFont systemFontOfSize:11]; message.textColor=NSColor.secondaryLabelColor; message.maximumNumberOfLines=1;
+        NSTextField *message=[self label:External(tool) ? @"Aktualizace spravuje samotná aplikace." : @"" frame:NSMakeRect(20,52,534,24) in:body]; message.font=[NSFont systemFontOfSize:11]; message.textColor=NSColor.secondaryLabelColor; message.maximumNumberOfLines=1;
         self.rows[tool[@"id"]]=@{@"state":state,@"version":version,@"toggle":toggle,@"settings":settings,@"install":install,@"message":message};
     }
     [scroll.contentView scrollToPoint:NSMakePoint(0,MAX(0,height-scroll.contentSize.height))];
@@ -152,11 +159,17 @@ static int StopForInstall(const char *identifier,const char *path) {
         [row[@"settings"] setEnabled:url && !busy];
         NSButton *install=row[@"install"]; install.title=busy ? @"Pracuji…" : !url ? @"Nainstalovat" : ![release[@"ok"] boolValue] ? @"Zkontrolovat" : available ? @"Aktualizovat" : @"Aktuální verze";
         install.enabled=!busy && (!url || available || ![release[@"ok"] boolValue]);
+        if (External(tool)) {
+            install.title=busy ? @"Pracuji…" : url ? @"Přidat aplikaci…" : @"Nainstalovat"; install.enabled=!busy;
+        }
         NSString *title=[NSString stringWithFormat:@"%@ · %@",tool[@"name"],running ? @"Běží" : url ? @"Vypnuto" : @"Nenainstalováno"];
         NSMenuItem *parent=[self item:title action:nil tool:nil menu:menu]; NSMenu *sub=[NSMenu new]; parent.submenu=sub; parent.enabled=YES;
         NSMenuItem *power=[self item:running ? @"Vypnout" : @"Zapnout" action:@selector(toggleTool:) tool:identifier menu:sub]; power.enabled=url && !busy;
-        NSMenuItem *settings=[self item:@"Nastavení nástroje…" action:@selector(settingsTool:) tool:identifier menu:sub]; settings.enabled=url && !busy;
-        NSMenuItem *update=[self item:!url ? @"Nainstalovat…" : @"Aktualizovat…" action:@selector(installTool:) tool:identifier menu:sub]; update.enabled=!busy && (!url || available || ![release[@"ok"] boolValue]);
+        NSMenuItem *settings=[self item:External(tool) ? @"Otevřít aplikaci…" : @"Nastavení nástroje…" action:@selector(settingsTool:) tool:identifier menu:sub]; settings.enabled=url && !busy;
+        NSMenuItem *update=[self item:External(tool) && url ? @"Přidat aplikaci…" : !url ? @"Nainstalovat…" : @"Aktualizovat…" action:@selector(installTool:) tool:identifier menu:sub]; update.enabled=!busy && (External(tool) || !url || available || ![release[@"ok"] boolValue]);
+        if (External(tool) && !url) {
+            NSMenuItem *choose=[self item:@"Vybrat existující aplikaci…" action:@selector(chooseApplication:) tool:identifier menu:sub]; choose.enabled=!busy;
+        }
     }
     [menu addItem:NSMenuItem.separatorItem];
     [self item:@"Otevřít správce…" action:@selector(show:) tool:nil menu:menu];
@@ -183,8 +196,8 @@ static int StopForInstall(const char *identifier,const char *path) {
     NSURL *url=Installed(tool); if (!url) return; Manage(tool);
     BOOL previous=[NSUserDefaults.standardUserDefaults boolForKey:[@"enabled." stringByAppendingString:tool[@"id"]]];
     [self remember:tool enabled:YES];
-    NSWorkspaceOpenConfiguration *config=[NSWorkspaceOpenConfiguration configuration]; config.activates=settings;
-    config.arguments=settings ? @[@"--settings"] : @[@"--background"];
+    NSWorkspaceOpenConfiguration *config=[NSWorkspaceOpenConfiguration configuration]; config.activates=settings || External(tool);
+    config.arguments=External(tool) ? @[] : settings ? @[@"--settings"] : @[@"--background"];
     [NSWorkspace.sharedWorkspace openApplicationAtURL:url configuration:config completionHandler:^(NSRunningApplication *app,NSError *error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error) { [self remember:tool enabled:previous]; [self message:error.localizedDescription tool:tool]; }
@@ -215,6 +228,7 @@ static int StopForInstall(const char *identifier,const char *path) {
 - (void)checkAll:(id)sender {
     (void)sender;
     for (NSDictionary *tool in self.tools) {
+        if (External(tool)) continue;
         NSString *identifier=tool[@"id"]; if ([self.busy containsObject:identifier] || [self.checking containsObject:identifier]) continue;
         [self.checking addObject:identifier]; [self message:@"Hledám nové vydání…" tool:tool];
         NSURL *url=Installed(tool); uint64_t build=[Info(url)[@"CFBundleVersion"] longLongValue];
@@ -230,10 +244,34 @@ static int StopForInstall(const char *identifier,const char *path) {
     }
     [self refresh];
 }
+- (void)chooseApplication:(id)sender {
+    NSDictionary *tool=[self tool:[self identifier:sender]];
+    if (tool && ![self.busy containsObject:tool[@"id"]]) { [self show:nil]; [self addApplication:tool]; }
+}
+- (void)addApplication:(NSDictionary *)tool {
+    NSOpenPanel *panel=[NSOpenPanel openPanel];
+    panel.title=[NSString stringWithFormat:@"Přidat %@ do správy",tool[@"name"]];
+    panel.prompt=@"Přidat"; panel.canChooseFiles=YES; panel.canChooseDirectories=NO;
+    panel.allowsMultipleSelection=NO; panel.treatsFilePackagesAsDirectories=NO;
+    panel.directoryURL=[NSURL fileURLWithPath:@"/Applications"];
+    [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+        if (response!=NSModalResponseOK) return;
+        NSURL *url=panel.URL.URLByResolvingSymlinksInPath;
+        if (![url.pathExtension.lowercaseString isEqual:@"app"] || ![Info(url)[@"CFBundleIdentifier"] isEqual:tool[@"bundle_id"]]) {
+            NSAlert *alert=[NSAlert new]; alert.messageText=@"Jiná aplikace";
+            alert.informativeText=[NSString stringWithFormat:@"Vyber aplikaci %@.",tool[@"name"]];
+            [alert beginSheetModalForWindow:self.window completionHandler:nil]; return;
+        }
+        [NSUserDefaults.standardUserDefaults setObject:url.path forKey:[@"applicationPath." stringByAppendingString:tool[@"id"]]];
+        [self remember:tool enabled:Running(tool,url).count>0];
+        [self refresh];
+    }];
+}
 - (void)installTool:(id)sender {
     NSDictionary *tool=[self tool:[self identifier:sender]]; if (!tool || [self.busy containsObject:tool[@"id"]]) return;
+    if (External(tool) && Installed(tool)) { [self chooseApplication:sender]; return; }
     NSString *identifier=tool[@"id"];
-    if (Installed(tool) && ![self.releases[identifier][@"ok"] boolValue]) { [self checkAll:nil]; return; }
+    if (!External(tool) && Installed(tool) && ![self.releases[identifier][@"ok"] boolValue]) { [self checkAll:nil]; return; }
     [self.busy addObject:identifier]; [self message:@"Stahuji a ověřuji balíček…" tool:tool]; [self refresh];
     NSURL *target=Installed(tool);
     if (!target) {
@@ -247,7 +285,7 @@ static int StopForInstall(const char *identifier,const char *path) {
             [self.busy removeObject:identifier];
             if ([result[@"ok"] boolValue]) { Manage(tool); [self message:@"Nainstalováno." tool:tool]; }
             else [self message:result[@"error"] tool:tool];
-            if ([result[@"relaunch"] boolValue]) [self openTool:tool settings:NO];
+            if ([result[@"relaunch"] boolValue] || (External(tool) && [result[@"ok"] boolValue])) [self openTool:tool settings:NO];
             [self refresh];
         });
     });

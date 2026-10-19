@@ -23,7 +23,7 @@ pub fn bundle_info(path: &Path) -> Result<(String, u64), String> {
         .map_err(|_| "Neplatné číslo sestavení.")?;
     Ok((id.to_owned(), build))
 }
-fn run(command: &mut Command, message: &str) -> Result<(), String> {
+pub(crate) fn run(command: &mut Command, message: &str) -> Result<(), String> {
     let output = command.output().map_err(|e| e.to_string())?;
     if output.status.success() {
         Ok(())
@@ -43,8 +43,14 @@ pub fn validate_bundle(app: &Path, tool: &Tool, release: &Release) -> Result<(),
     if id != tool.bundle_id || build != release.build {
         return Err("Stažená aplikace neodpovídá podepsané verzi.".into());
     }
+    validate_publisher(app, tool)
+}
+pub(crate) fn validate_publisher(app: &Path, tool: &Tool) -> Result<(), String> {
+    if tool.team_id.is_empty() {
+        return Err("V katalogu chybí identita vydavatele.".into());
+    }
     let requirement = format!(
-        "anchor apple generic and identifier \"{}\" and certificate leaf[subject.OU] = \"{}\"",
+        "=anchor apple generic and identifier \"{}\" and certificate leaf[subject.OU] = \"{}\"",
         tool.bundle_id, tool.team_id
     );
     run(
