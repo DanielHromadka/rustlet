@@ -1,0 +1,74 @@
+name: macOS installers
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '12.0'
+      CODE_SIGN_IDENTITY: '-'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+      - name: Check architecture
+        run: test "$(uname -m)" = '${{ matrix.arch }}'
+      - name: Test
+        run: cargo test --locked
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build and verify installers
+        run: ./scripts/package-macos.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rustlet-macos-${{ matrix.arch }}
+          path: dist/installers/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged installers
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download installers and create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          gh run download "$RUN_ID" --dir artifacts
+          gh release create "$TAG" artifacts/*/* --verify-tag --target "$COMMIT" \
+            --title "Rustlet $TAG" \
+            --notes 'macOS installers for Apple Silicon and Intel. Applications use ad hoc signing; PKG installers are unsigned and these builds are not Apple-notarized. SHA-256 checksums are included. These artifacts do not update the signed Rustlet/Sparkle distribution feeds.'
