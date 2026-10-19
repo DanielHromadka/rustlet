@@ -47,15 +47,15 @@ Samostatný repozitář extrahovaný z Desktop Tool Ring se zachovanou historií
 
 Repozitář: https://github.com/DanielHromadka/rustlet
 
-Workflow **macOS installers** běží po pushi do `main`, v pull requestech a ručně přes **Actions → macOS installers → Run workflow**. Oddělené macOS runnery sestaví Apple Silicon (`arm64`) a Intel (`x86_64`), spustí Rust testy a Clippy a nahrají artefakty dostupné v detailu běhu po dobu 30 dnů.
+Workflow **macOS installers** běží po pushi do `main`, v pull requestech a ručně přes **Actions → macOS installers → Run workflow**. Oddělené macOS runnery sestaví Apple Silicon (`arm64`) a Intel (`x86_64`), spustí Rust testy a Clippy a nahrají instalační soubory přímo do **GitHub Releases**. Tím se nepoužívá vyčerpatelná kvóta Actions Artifacts. Push do `main` a ruční spuštění vytvoří prerelease `build-<run-id>-<attempt>`; pull requesty pouze ověří sestavení a nic nepublikují.
 
-Každý artefakt obsahuje `.pkg` instalátor do `/Applications`, `.dmg` s aplikací a odkazem na Applications a `.sha256` soubor. Instalátor ani aplikace se při ověřování nespouštějí. Lokálně:
+Každé vydání obsahuje `.pkg` instalátor do `/Applications`, `.dmg` s aplikací a odkazem na Applications a `.sha256` soubor. Instalátor ani aplikace se při ověřování nespouštějí. Lokálně:
 
 ```sh
 ./scripts/package-macos.sh
 # Výstup: dist/installers/
 ```
 
-Pro GitHub Release uprav `Cargo.toml` i `resources/Info.plist` na novou verzi, aktualizuj `Cargo.lock`, commitni a pushni tag `v<verze>`. Tag musí odpovídat `CFBundleShortVersionString`. Až projdou oba buildy, workflow publikuje v tomto repozitáři Release s oběma architekturami. Soukromé repo znamená i soukromé artefakty a vydání.
+Pro GitHub Release uprav `Cargo.toml` i `resources/Info.plist` na novou verzi, aktualizuj `Cargo.lock`, commitni a pushni tag `v<verze>`. Tag musí odpovídat `CFBundleShortVersionString`. Až projdou oba buildy, workflow publikuje v tomto repozitáři Release s oběma architekturami. Soukromé repo znamená i soukromé artefakty a vydání. Rozpracované vydání zůstává draft, dokud neprojdou obě architektury; chyba buildu nezveřejní neúplné vydání. Po úspěchu je odkaz v souhrnu běhu Actions i v sekci Releases. Opakované spuštění používá nové číslo pokusu u build prerelease; vydanou verzi s tagem `v...` nepřepisuje.
 
 **Podpisy:** CI zatím používá ad hoc podpis aplikace; `.pkg` není podepsaný certifikátem Developer ID Installer a balíčky nejsou notarizované Applem. Gatekeeper je proto nemusí otevřít běžným dvojklikem. Pro distribuci bez tohoto omezení je nutné doplnit Developer ID Application/Installer a notarizaci. Pipeline neexportuje lokální klíče ani certifikáty. Tyto instalační artefakty nezveřejňují ani nepřepisují podepsané aktualizační feedy Rustlet/Sparkle; stávající ověřování aktualizací zůstává aktivní.
